@@ -11,6 +11,11 @@ pub mod blog_contract {
         let user = &mut ctx.accounts.user;
         user.post_count = 0;
         msg!("User Blog Account created successfully");
+        // Emit event
+        emit!(UserCreated {
+            user: ctx.accounts.payer.key(),
+            post_count: user.post_count,
+        });
         Ok(())
     }
 
@@ -20,8 +25,8 @@ pub mod blog_contract {
 
         let index = user.post_count;
         post.post_index = index;
-        post.title = title;
-        post.content = content;
+        post.title = title.clone();
+        post.content = content.clone();
         post.likes = 0;
         post.author = ctx.accounts.payer.key();
         post.created_at = Clock::get()?.unix_timestamp;
@@ -43,6 +48,14 @@ pub mod blog_contract {
             ctx.accounts.payer.key(),
             user.post_count
         );
+
+        // Emit event
+        emit!(PostCreated {
+            author: ctx.accounts.payer.key(),
+            post_index: post.post_index,
+            title,
+            content,
+        });
         Ok(())
     }
 
@@ -57,9 +70,19 @@ pub mod blog_contract {
             post.title,
             post.likes
         );
+
+        // Emit event
+        emit!(PostLiked {
+            liker: ctx.accounts.payer.key(),
+            author,
+            post_index,
+            total_likes: post.likes,
+        });
         Ok(())
     }
 }
+
+// -------------------- Accounts --------------------
 
 #[derive(Accounts)]
 pub struct CreateUserBlogAccount<'info> {
@@ -118,6 +141,8 @@ pub struct LikePost<'info> {
     pub system_program: Program<'info, System>,
 }
 
+// -------------------- Data --------------------
+
 #[account]
 #[derive(InitSpace)]
 pub struct Post {
@@ -142,4 +167,28 @@ pub struct User {
 pub enum ErrorCode {
     #[msg("Post count overflow")]
     PostCountOverflow,
+}
+
+// -------------------- Events --------------------
+
+#[event]
+pub struct UserCreated {
+    pub user: Pubkey,
+    pub post_count: u64,
+}
+
+#[event]
+pub struct PostCreated {
+    pub author: Pubkey,
+    pub post_index: u64,
+    pub title: String,
+    pub content: String,
+}
+
+#[event]
+pub struct PostLiked {
+    pub liker: Pubkey,
+    pub author: Pubkey,
+    pub post_index: u64,
+    pub total_likes: u64,
 }
