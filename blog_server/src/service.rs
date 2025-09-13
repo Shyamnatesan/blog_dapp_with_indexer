@@ -34,8 +34,7 @@ pub async fn fetch_all_posts_by_user(
 }
 
 pub async fn fetch_post_by_user(
-    Path(author): Path<String>,
-    Path(post_index): Path<u64>,
+    Path((author, post_index)): Path<(String, usize)>,
     State(state): State<AppState>,
 ) -> Result<Json<Post>, (StatusCode, String)> {
     let pool = state.db_pool.as_ref();
@@ -118,9 +117,9 @@ pub async fn fetch_trending_posts(
 ) -> Result<Json<Vec<Post>>, (StatusCode, String)> {
     let pool = state.db_pool.as_ref();
 
-    // Fetch posts with likes greater than 100, ordered by likes in descending order
+    // Fetch posts with likes greater than 10, ordered by likes in descending order
     let posts =
-        sqlx::query_as::<_, Post>("SELECT * FROM posts WHERE likes > 100 ORDER BY likes DESC")
+        sqlx::query_as::<_, Post>("SELECT * FROM posts WHERE likes >= 2 ORDER BY likes DESC")
             .fetch_all(pool)
             .await
             .map_err(|e| {

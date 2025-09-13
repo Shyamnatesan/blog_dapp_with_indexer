@@ -46,7 +46,7 @@ async fn main() {
     let app = Router::new()
         .route("/posts/{author}", get(fetch_all_posts_by_user))
         .route("/post/{author}/{post_index}", get(fetch_post_by_user))
-        .route("/top-posts?k", get(fetch_top_k_most_liked_posts))
+        .route("/top-posts", get(fetch_top_k_most_liked_posts))
         .route("/user-stats/{user}", get(fetch_user_stats))
         .route("/trending", get(fetch_trending_posts))
         .with_state(state);

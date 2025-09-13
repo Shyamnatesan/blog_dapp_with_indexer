@@ -1,21 +1,19 @@
 use serde::Serialize;
-use uuid::Uuid;
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct User {
-    pub id: Uuid,
-    pub username: String,
-    pub email: String,
-    pub pubkey: String,
+    pub address: String,
+    pub post_count: i64,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct Post {
-    pub id: Uuid,
-    pub user_id: Uuid,
+    pub user_address: String,
     pub title: String,
     pub content: String,
     pub likes: i64,
+    pub post_index: i64,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]

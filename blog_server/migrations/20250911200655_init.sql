@@ -10,7 +10,7 @@ CREATE INDEX IF NOT EXISTS idx_users_address ON users(address);
 -- Create posts table
 CREATE TABLE IF NOT EXISTS posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_address INT NOT NULL REFERENCES users(address) ON DELETE CASCADE,
+    user_address TEXT NOT NULL REFERENCES users(address) ON DELETE CASCADE,
     title TEXT NOT NULL,
     content TEXT NOT NULL,
     likes INTEGER NOT NULL DEFAULT 0,
