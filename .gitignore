@@ -1,0 +1,8 @@
+# Env files
+.env
+
+# SQLite DB
+*.db
+
+# SQLx metadata
+.sqlx/

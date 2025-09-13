@@ -1,123 +1,58 @@
-use anchor_lang::prelude::borsh::BorshDeserialize;
-use anchor_lang::prelude::*;
-use base64::{Engine, engine::general_purpose};
+mod db;
+mod events;
+mod indexer;
+mod models;
+mod service;
 
-use sha2::{Digest, Sha256};
-use solana_client::{
-    pubsub_client::PubsubClient,
-    rpc_config::{RpcTransactionLogsConfig, RpcTransactionLogsFilter},
+use std::sync::Arc;
+
+use axum::{Router, routing::get};
+use dotenv::dotenv;
+use indexer::start_indexer;
+
+use sqlx::SqlitePool;
+use tokio::net::TcpListener;
+
+use crate::service::{
+    fetch_all_posts_by_user, fetch_post_by_user, fetch_top_k_most_liked_posts,
+    fetch_trending_posts, fetch_user_stats,
 };
-use solana_commitment_config::CommitmentConfig;
 
-#[derive(Debug, BorshDeserialize)]
-pub struct UserCreated {
-    pub user: Pubkey,
-    pub post_count: u64,
+#[derive(Clone)]
+struct AppState {
+    db_pool: Arc<SqlitePool>,
 }
 
-#[derive(Debug, BorshDeserialize)]
-pub struct PostCreated {
-    pub author: Pubkey,
-    pub post_index: u64,
-    pub title: String,
-    pub content: String,
-}
-
-#[derive(Debug, BorshDeserialize)]
-pub struct PostLiked {
-    pub liker: Pubkey,
-    pub author: Pubkey,
-    pub post_index: u64,
-    pub total_likes: u64,
-}
-
-fn event_discriminator(name: &str) -> [u8; 8] {
-    // Anchor's event discriminator = sha256("event:<EventName>")[..8]
-    let mut hasher = Sha256::new();
-    hasher.update(format!("event:{}", name).as_bytes());
-    let hash = hasher.finalize();
-    hash[..8].try_into().expect("slice with incorrect length")
+#[derive(Debug)]
+pub enum AppError {
+    DbError(sqlx::Error),
+    NotFound,
 }
 
 #[tokio::main]
 async fn main() {
-    // Program ID
-    let program_id = Pubkey::from_str_const("TUfhbucqRBwNNS6Ai1DXEZeJ4LwErVKACmEegz3JmUT");
+    dotenv().ok();
 
-    // precompute discriminators
-    let user_disc = event_discriminator("UserCreated");
-    let post_disc = event_discriminator("PostCreated");
-    let liked_disc = event_discriminator("PostLiked");
+    let pool = db::init_db_pool(5).await;
 
-    let config = RpcTransactionLogsConfig {
-        commitment: Some(CommitmentConfig::confirmed()),
+    let state = AppState {
+        db_pool: Arc::new(pool),
     };
 
-    let filter = RpcTransactionLogsFilter::Mentions(vec![program_id.to_string()]);
+    tokio::spawn(async move {
+        start_indexer().await;
+    });
 
-    // Connect to localnet WebSocket
-    let ws_url = "ws://localhost:8900"; // your localnet ws port
-    let (mut client, receiver) = PubsubClient::logs_subscribe(ws_url, filter, config).unwrap();
+    let app = Router::new()
+        .route("/posts/{author}", get(fetch_all_posts_by_user))
+        .route("/post/{author}/{post_index}", get(fetch_post_by_user))
+        .route("/top-posts?k", get(fetch_top_k_most_liked_posts))
+        .route("/user-stats/{user}", get(fetch_user_stats))
+        .route("/trending", get(fetch_trending_posts))
+        .with_state(state);
 
-    println!("Listening for events from program: {}", program_id);
+    let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
+    println!("Server running on http://127.0.0.1:8080");
 
-    while let Ok(log_info) = receiver.recv() {
-        for log in log_info.value.logs.iter() {
-            if let Some(stripped) = log.strip_prefix("Program data: ") {
-                match general_purpose::STANDARD.decode(stripped) {
-                    Ok(bytes) if bytes.len() >= 8 => {
-                        let (disc, data) = bytes.split_at(8);
-                        if disc == user_disc.as_ref() {
-                            match UserCreated::try_from_slice(data) {
-                                Ok(ev) => {
-                                    let user_pk = Pubkey::new_from_array(ev.user.to_bytes());
-                                    println!(
-                                        "UserCreated: user={} post_count={}",
-                                        user_pk, ev.post_count
-                                    );
-                                }
-                                Err(e) => eprintln!("UserCreated decode error: {:?}", e),
-                            }
-                        } else if disc == post_disc.as_ref() {
-                            match PostCreated::try_from_slice(data) {
-                                Ok(ev) => {
-                                    let author_pk = Pubkey::new_from_array(ev.author.to_bytes());
-
-                                    println!(
-                                        "PostCreated: author={} index={} title={} content={}",
-                                        author_pk, ev.post_index, ev.title, ev.content
-                                    );
-                                }
-                                Err(e) => eprintln!("PostCreated decode error: {:?}", e),
-                            }
-                        } else if disc == liked_disc.as_ref() {
-                            match PostLiked::try_from_slice(data) {
-                                Ok(ev) => {
-                                    let liker_pk = Pubkey::new_from_array(ev.liker.to_bytes());
-                                    let author_pk = Pubkey::new_from_array(ev.author.to_bytes());
-                                    println!(
-                                        "PostLiked: liker={} author={} index={} total_likes={}",
-                                        liker_pk, author_pk, ev.post_index, ev.total_likes
-                                    );
-                                }
-                                Err(e) => eprintln!("PostLiked decode error: {:?}", e),
-                            }
-                        } else {
-                            // Unknown event discriminator — you can log or ignore
-                            eprintln!("Unknown event discriminator: {:?}", disc);
-                        }
-                    }
-
-                    Ok(_) => {
-                        // valid base64 but too short
-                        eprintln!("Invalid event data: too short");
-                    }
-                    Err(_) => {
-                        // too-short payload
-                        eprintln!("Program data too short");
-                    }
-                }
-            }
-        }
-    }
+    axum::serve(listener, app).await.unwrap();
 }
